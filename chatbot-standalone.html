@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+  *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:#fff}
+  /* زر الشات */
+  .bot-fab{
+    position:fixed;right:16px;bottom:16px;width:56px;height:56px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    background:#0f172a;color:#fff;box-shadow:0 10px 24px rgba(0,0,0,.25);z-index:99999
+  }
+  .bot-fab svg{width:26px;height:26px;fill:none;stroke:#fff;stroke-width:2}
+  /* لوحة الدردشة */
+  .bot-panel{
+    position:fixed;right:16px;bottom:82px;width:360px;max-width:92vw;height:520px;display:none;
+    flex-direction:column;border-radius:14px;overflow:hidden;background:#fff;border:1px solid #e5e7eb;
+    box-shadow:0 24px 60px rgba(0,0,0,.25);z-index:99998
+  }
+  .bot-header{background:#0f172a;color:#fff;padding:10px 12px;display:flex;justify-content:space-between;align-items:center}
+  .bot-body{flex:1;overflow:auto;background:#f7f7f8;padding:10px}
+  .bot-msg{max-width:85%;margin:8px 0;padding:8px 10px;border-radius:10px;white-space:pre-wrap;line-height:1.4}
+  .bot-user{background:#e8f0ff;margin-inline-start:auto}
+  .bot-ai{background:#fff;border:1px solid #eee}
+  .bot-input{display:flex;border-top:1px solid #eee}
+  .bot-input input{flex:1;padding:12px;border:0;outline:none}
+  .bot-input button{padding:0 14px;border:0;background:#0f172a;color:#fff;cursor:pointer}
+  /* مؤشر الكتابة */
+  .typing-indicator {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    max-width: 85%;
+    margin: 8px 0;
+  }
+  .typing-indicator i {
+    width: 40px;
+    height: 40px;
+    margin-right: 8px;
+    color: #0f172a;
+    font-size: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .typing-indicator span {
+    flex: 1;
+  }
+  .typing-cursor {
+    animation: blink 1s infinite;
+  }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  .typing-dots {
+    display: inline-block;
+    animation: dots 1.5s infinite;
+  }
+  @keyframes dots {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+  }
+</style>
+</head>
+<body>
+
+<!-- رمز الشات فقط -->
+<div class="bot-fab" id="botFab" aria-label="افتح الدردشة">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M21 12c0 3.9-3.6 7-8 7-.9 0-1.8-.1-2.6-.3L4 20l1.5-3.1C4.6 15.8 4 13.9 4 12 4 8.1 7.6 5 12 5s9 3.1 9 7Z"/>
+    <path d="M8 11h8M8 14h5" stroke-linecap="round"/>
+  </svg>
+</div>
+
+<!-- لوحة الدردشة (مخفيّة افتراضيًا) -->
+<div class="bot-panel" id="botPanel" aria-hidden="true">
+  <div class="bot-header">
+    <span>مساعد</span>
+    <button id="botClose" style="background:none;border:0;color:#fff;font-size:18px;cursor:pointer">×</button>
+  </div>
+  <div class="bot-body" id="botBody"></div>
+  <div class="bot-input">
+    <input id="botInput" placeholder="اكتب سؤالك…">
+    <button id="botSend">إرسال</button>
+  </div>
+</div>
+
+<script>
+  // غيّر ده حسب سيرفرك (محلي/مستضاف)
+  const API_BASE = "http://localhost:8000";
+
+  const fab = document.getElementById('botFab');
+  const panel = document.getElementById('botPanel');
+  const closeBtn = document.getElementById('botClose');
+  const body = document.getElementById('botBody');
+  const input = document.getElementById('botInput');
+  const send = document.getElementById('botSend');
+
+  const sid = localStorage.getItem('bot_sid') || (Date.now()+"-"+Math.random().toString(16).slice(2));
+  localStorage.setItem('bot_sid', sid);
+
+  function toggle(open){
+    const show = (typeof open==='boolean') ? open : (panel.style.display!=='flex');
+    panel.style.display = show ? 'flex' : 'none';
+    panel.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (show) setTimeout(()=> input.focus(), 30);
+  }
+  fab.addEventListener('click', ()=> toggle(true));
+  closeBtn.addEventListener('click', ()=> toggle(false));
+
+  function addMsg(text, who='ai'){
+    const el = document.createElement('div');
+    el.className = 'bot-msg ' + (who==='user' ? 'bot-user' : 'bot-ai');
+    // Convert URLs to hyperlinks for AI messages
+    if (who === 'ai') {
+      el.innerHTML = text ? text.replace(/(https?:\/\/[^\s<>"{}|\\^`[\]]+)([.,!?;:]*)/g, function(match, url, punct) { return '<a href="' + url + '" target="_blank">' + url + '</a>' + punct; }) : '…';
+    } else {
+      el.textContent = text || '…';
+    }
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  async function ask(){
+    console.log('ask function called');
+    const q = input.value.trim(); if(!q) return; input.value='';
+    addMsg(q,'user');
+    console.log('Adding typing indicator');
+    const typingDiv = document.createElement('div');
+    typingDiv.className = 'bot-msg bot-ai typing-indicator';
+    const robotIcon = '<i class="bi bi-robot"></i>';
+    typingDiv.innerHTML = robotIcon + '<span>يكتب<span class="typing-dots"></span><span class="typing-cursor">|</span></span>';
+    body.appendChild(typingDiv);
+    body.scrollTop = body.scrollHeight;
+    try{
+      console.log('Sending fetch request');
+      const r = await fetch(`${API_BASE}/chat`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({session_id:sid, message:q})
+      });
+      if (!r.ok) {
+        const errorText = await r.text();
+        console.log('Fetch failed, removing indicator');
+        body.removeChild(typingDiv);
+        addMsg(`خطأ في السيرفر: ${r.status} - ${errorText}`, 'ai');
+        return;
+      }
+      const j = await r.json();
+      if (j.error) {
+        console.log('API error, removing indicator');
+        body.removeChild(typingDiv);
+        addMsg(`خطأ: ${j.error}`, 'ai');
+        return;
+      }
+      console.log('Response received, removing indicator');
+      body.removeChild(typingDiv);
+      addMsg(j.answer || 'لا يوجد إجابة.', 'ai');
+    }catch(e){
+      console.log('Fetch error, removing indicator');
+      body.removeChild(typingDiv);
+      addMsg('تعذر الاتصال بالسيرفر. راجع API_BASE.', 'ai');
+    }
+  }
+  send.addEventListener('click', ask);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') ask(); });
+</script>
+</body>
+</html>
